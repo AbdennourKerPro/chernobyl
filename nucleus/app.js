@@ -143,6 +143,14 @@ const state = {
   lastUiPaint: 0,
   lastCountryCalculation: -100,
   cameraCheckpoints: new Set(),
+  weather: {
+    mode: "auto",
+    cache: new Map(),
+    controller: null,
+    requestToken: 0,
+    current: null,
+    manualSnapshot: null,
+  },
 };
 
 const els = Object.fromEntries(
@@ -152,6 +160,9 @@ const els = Object.fromEntries(
     "plantReactorCount", "plantUnits", "plantOperating", "plantCapacity", "unitList", "focusPlant",
     "scenarioList", "compatibilityNote", "windDirection", "windDirectionValue", "compassNeedle",
     "windSpeed", "windSpeedValue", "rainLevel", "rainLevelValue", "dispersionLevel", "dispersionValue",
+    "weatherAutoButton", "weatherManualButton", "refreshWeather", "weatherLive", "weatherConditionIcon",
+    "weatherStatusTitle", "weatherStatusMeta", "weatherFacts", "weatherTemperature", "weatherSourceWind",
+    "weatherPrecipitation", "weatherFootnote",
     "launchSimulation", "zoomIn", "zoomOut", "resetView", "scenarioHud", "hudClock", "hudEvent",
     "impactPanel", "impactPlantName", "closeSimulation", "metricIndex", "metricLabel", "metricReach",
     "metricArea", "metricCountries", "timelineConsole", "playToggle", "playIcon", "timelineScenario",
@@ -161,6 +172,8 @@ const els = Object.fromEntries(
 );
 
 const numberFormat = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
+const weatherNumberFormat = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 1 });
+const WEATHER_CACHE_TTL = 10 * 60 * 1000;
 
 const map = L.map("map", {
   center: [27, 12],
@@ -226,6 +239,7 @@ async function boot() {
     renderScenarios();
     createMarkers();
     bindControls();
+    setWeatherMode("auto", { requestWeather: false });
 
     const defaultPlant =
       state.plants.find((plant) => plant.name.toLowerCase().includes("gravelines")) ||
@@ -388,6 +402,7 @@ function selectPlant(plant, { focus = true } = {}) {
   closeSearchResults();
   els.plantSearch.value = "";
   if (focus) map.flyTo([plant.lat, plant.lon], Math.max(map.getZoom(), 5), { duration: 1.25 });
+  if (state.weather.mode === "auto") syncWeatherForPlant(plant);
   if (state.launched) launchSimulation();
 }
 
@@ -439,12 +454,19 @@ function bindControls() {
   for (const input of [els.windDirection, els.windSpeed, els.rainLevel, els.dispersionLevel]) {
     input.addEventListener("input", () => {
       updateWeatherReadouts();
+      if (state.weather.mode === "manual") state.weather.manualSnapshot = readWeatherInputs();
       if (state.launched) {
         updateContours();
         state.lastCountryCalculation = -100;
       }
     });
   }
+
+  els.weatherAutoButton.addEventListener("click", () => setWeatherMode("auto"));
+  els.weatherManualButton.addEventListener("click", () => setWeatherMode("manual"));
+  els.refreshWeather.addEventListener("click", () => {
+    if (state.weather.mode === "auto" && state.selectedPlant) syncWeatherForPlant(state.selectedPlant, { force: true });
+  });
 
   els.launchSimulation.addEventListener("click", launchSimulation);
   els.playToggle.addEventListener("click", togglePlayback);
@@ -545,6 +567,201 @@ function handleGlobalKeys(event) {
 
 function closeSearchResults() {
   els.searchResults.hidden = true;
+}
+
+function readWeatherInputs() {
+  return {
+    direction: Number(els.windDirection.value),
+    speed: Number(els.windSpeed.value),
+    rain: Number(els.rainLevel.value),
+    dispersion: Number(els.dispersionLevel.value),
+  };
+}
+
+function applyWeatherInputs(values) {
+  els.windDirection.value = String(clamp(Math.round(values.direction), 0, 359));
+  els.windSpeed.value = String(clamp(Math.round(values.speed), Number(els.windSpeed.min), Number(els.windSpeed.max)));
+  els.rainLevel.value = String(clamp(Math.round(values.rain), 0, 100));
+  els.dispersionLevel.value = String(clamp(Math.round(values.dispersion), 0, 100));
+  updateWeatherReadouts();
+  if (state.launched) {
+    updateContours();
+    state.lastCountryCalculation = -100;
+  }
+}
+
+function setWeatherMode(mode, { requestWeather = true, restoreManual = true } = {}) {
+  if (!['auto', 'manual'].includes(mode)) return;
+  const previousMode = state.weather.mode;
+  if (mode === 'auto' && previousMode === 'manual') state.weather.manualSnapshot = readWeatherInputs();
+
+  if (mode === 'manual') {
+    if (state.weather.controller) state.weather.controller.abort();
+    state.weather.controller = null;
+    if (restoreManual && state.weather.manualSnapshot) applyWeatherInputs(state.weather.manualSnapshot);
+    else if (!state.weather.manualSnapshot) state.weather.manualSnapshot = readWeatherInputs();
+  }
+
+  state.weather.mode = mode;
+  const isAuto = mode === 'auto';
+  els.weatherAutoButton.classList.toggle('active', isAuto);
+  els.weatherManualButton.classList.toggle('active', !isAuto);
+  els.weatherAutoButton.setAttribute('aria-pressed', String(isAuto));
+  els.weatherManualButton.setAttribute('aria-pressed', String(!isAuto));
+  els.weatherAutoButton.querySelector('i')?.setAttribute('aria-hidden', 'true');
+  els.weatherLive.closest('.weather-section').classList.toggle('auto', isAuto);
+  els.weatherLive.closest('.weather-section').classList.toggle('manual', !isAuto);
+  for (const input of [els.windDirection, els.windSpeed, els.rainLevel, els.dispersionLevel]) input.disabled = isAuto;
+
+  if (isAuto) {
+    els.weatherFootnote.textContent = 'Météo locale automatique · ne pas utiliser pour une urgence';
+    if (requestWeather && state.selectedPlant) syncWeatherForPlant(state.selectedPlant);
+  } else {
+    els.weatherLive.className = 'weather-live-card manual';
+    els.weatherConditionIcon.textContent = '✦';
+    els.weatherStatusTitle.textContent = 'Réglages météorologiques manuels';
+    els.weatherStatusMeta.textContent = 'Les curseurs pilotent directement la simulation';
+    els.weatherFacts.hidden = true;
+    els.weatherFootnote.textContent = 'Météo manuelle · ne pas utiliser pour une urgence';
+  }
+}
+
+async function syncWeatherForPlant(plant, { force = false } = {}) {
+  if (!plant || state.weather.mode !== 'auto') return;
+  const cached = state.weather.cache.get(plant.id);
+  if (!force && cached && Date.now() - cached.fetchedAt < WEATHER_CACHE_TTL) {
+    applyCurrentWeather(cached.payload, plant);
+    return;
+  }
+
+  if (state.weather.controller) state.weather.controller.abort();
+  const controller = new AbortController();
+  state.weather.controller = controller;
+  const requestToken = ++state.weather.requestToken;
+  els.weatherLive.className = 'weather-live-card loading';
+  els.refreshWeather.classList.add('loading');
+  els.weatherConditionIcon.textContent = '◌';
+  els.weatherStatusTitle.textContent = 'Chargement de la météo locale…';
+  els.weatherStatusMeta.textContent = `${plant.name} · modèle Open-Meteo`;
+  els.weatherFacts.hidden = true;
+
+  const parameters = new URLSearchParams({
+    latitude: String(plant.lat),
+    longitude: String(plant.lon),
+    current: [
+      'temperature_2m', 'relative_humidity_2m', 'precipitation', 'weather_code', 'cloud_cover',
+      'wind_speed_10m', 'wind_direction_10m', 'wind_gusts_10m', 'is_day', 'cape', 'boundary_layer_height',
+    ].join(','),
+    wind_speed_unit: 'kmh',
+    precipitation_unit: 'mm',
+    timezone: 'auto',
+    forecast_days: '1',
+  });
+
+  try {
+    const response = await fetch(`https://api.open-meteo.com/v1/forecast?${parameters}`, {
+      signal: controller.signal,
+      headers: { Accept: 'application/json' },
+    });
+    if (!response.ok) throw new Error(`Open-Meteo HTTP ${response.status}`);
+    const payload = await response.json();
+    if (requestToken !== state.weather.requestToken || state.weather.mode !== 'auto' || state.selectedPlant?.id !== plant.id) return;
+    const current = payload.current;
+    if (!current || !Number.isFinite(Number(current.wind_speed_10m)) || !Number.isFinite(Number(current.wind_direction_10m))) {
+      throw new Error('Réponse météo incomplète');
+    }
+    state.weather.cache.set(plant.id, { payload, fetchedAt: Date.now() });
+    applyCurrentWeather(payload, plant);
+  } catch (error) {
+    if (error.name === 'AbortError') return;
+    console.warn('Météo automatique indisponible', error);
+    if (requestToken !== state.weather.requestToken) return;
+    setWeatherMode('manual', { requestWeather: false, restoreManual: false });
+    els.weatherLive.className = 'weather-live-card error';
+    els.weatherConditionIcon.textContent = '!';
+    els.weatherStatusTitle.textContent = 'Météo automatique indisponible';
+    els.weatherStatusMeta.textContent = 'Valeurs conservées · mode manuel activé';
+  } finally {
+    if (requestToken === state.weather.requestToken) {
+      els.refreshWeather.classList.remove('loading');
+      state.weather.controller = null;
+    }
+  }
+}
+
+function applyCurrentWeather(payload, plant) {
+  const current = payload.current;
+  const sourceDirection = normalizeDegrees(weatherNumber(current.wind_direction_10m));
+  const plumeDirection = normalizeDegrees(sourceDirection + 180);
+  const speed = weatherNumber(current.wind_speed_10m);
+  const precipitation = Math.max(0, weatherNumber(current.precipitation));
+  const dispersion = estimateAtmosphericInstability(current);
+  const condition = weatherCondition(current.weather_code);
+
+  state.weather.current = { payload, plantId: plant.id, sourceDirection, plumeDirection, precipitation, dispersion };
+  applyWeatherInputs({
+    direction: plumeDirection,
+    speed,
+    rain: precipitationToIndex(precipitation),
+    dispersion,
+  });
+
+  els.weatherLive.className = 'weather-live-card';
+  els.weatherConditionIcon.textContent = condition.icon;
+  els.weatherStatusTitle.textContent = `${condition.label} · ${weatherNumberFormat.format(weatherNumber(current.temperature_2m))} °C`;
+  const localTime = typeof current.time === 'string' && current.time.includes('T') ? current.time.slice(11, 16) : 'heure locale';
+  const timezone = payload.timezone_abbreviation ? ` ${payload.timezone_abbreviation}` : '';
+  els.weatherStatusMeta.textContent = `${plant.name} · ${localTime}${timezone} · Open-Meteo`;
+  els.weatherTemperature.textContent = `${weatherNumberFormat.format(weatherNumber(current.relative_humidity_2m))} % humidité`;
+  els.weatherSourceWind.textContent = `Vent ${String(Math.round(sourceDirection)).padStart(3, '0')}° → panache ${String(Math.round(plumeDirection)).padStart(3, '0')}°`;
+  els.weatherPrecipitation.textContent = `${weatherNumberFormat.format(precipitation)} mm de précip.`;
+  els.weatherFacts.hidden = false;
+  els.weatherFootnote.textContent = `Météo Open-Meteo à ${localTime}${timezone} · simulation non opérationnelle`;
+}
+
+function estimateAtmosphericInstability(current) {
+  const cape = Math.max(0, weatherNumber(current.cape, NaN));
+  const boundaryLayer = Math.max(0, weatherNumber(current.boundary_layer_height, NaN));
+  const wind = Math.max(0, weatherNumber(current.wind_speed_10m));
+  const gust = Math.max(wind, weatherNumber(current.wind_gusts_10m, wind));
+  const cloud = clamp(weatherNumber(current.cloud_cover, 50), 0, 100);
+  const isDay = Number(current.is_day) === 1;
+  const capeScore = Number.isFinite(cape) ? 100 * (1 - Math.exp(-cape / 700)) : 0;
+  const boundaryScore = Number.isFinite(boundaryLayer) ? clamp((boundaryLayer - 120) / 12, 0, 100) : 0;
+  const gustScore = clamp((gust - wind) * 3, 0, 100);
+  const solarProxy = isDay ? (100 - cloud) * 0.32 : Math.max(0, 18 - cloud * 0.12);
+  const hasVerticalData = Number.isFinite(cape) || Number.isFinite(boundaryLayer);
+  const score = hasVerticalData
+    ? capeScore * 0.52 + boundaryScore * 0.28 + gustScore * 0.12 + solarProxy * 0.08
+    : gustScore * 0.45 + solarProxy * 0.55;
+  return clamp(Math.round(score), 0, 100);
+}
+
+function precipitationToIndex(millimeters) {
+  return clamp(Math.round(100 * (1 - Math.exp(-Math.max(0, millimeters) / 0.75))), 0, 100);
+}
+
+function weatherCondition(codeValue) {
+  const code = Math.round(weatherNumber(codeValue, -1));
+  if (code === 0) return { label: 'Ciel dégagé', icon: '☀' };
+  if ([1, 2].includes(code)) return { label: 'Éclaircies', icon: '◐' };
+  if (code === 3) return { label: 'Couvert', icon: '●' };
+  if ([45, 48].includes(code)) return { label: 'Brouillard', icon: '≋' };
+  if (code >= 51 && code <= 57) return { label: 'Bruine', icon: '⋰' };
+  if ((code >= 61 && code <= 67) || (code >= 80 && code <= 82)) return { label: 'Pluie', icon: '◒' };
+  if ((code >= 71 && code <= 77) || (code >= 85 && code <= 86)) return { label: 'Neige', icon: '✣' };
+  if (code >= 95) return { label: 'Orage', icon: 'ϟ' };
+  return { label: 'Conditions locales', icon: '◌' };
+}
+
+function weatherNumber(value, fallback = 0) {
+  if (value === null || value === undefined || value === '') return fallback;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function normalizeDegrees(value) {
+  return ((value % 360) + 360) % 360;
 }
 
 function updateWeatherReadouts() {

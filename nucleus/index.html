@@ -11,7 +11,7 @@
     <title>NUCLEUS — Atlas des scénarios nucléaires</title>
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <link rel="stylesheet" href="./vendor/leaflet.css?v=a783710" />
-    <link rel="stylesheet" href="./styles.css?v=07441f5" />
+    <link rel="stylesheet" href="./styles.css?v=weather-1" />
   </head>
   <body>
     <div class="app-shell">
@@ -121,8 +121,31 @@
               <div class="section-heading compact">
                 <span class="step-index">03</span>
                 <div>
-                  <p>Atmosphère synthétique</p>
+                  <p>Conditions atmosphériques</p>
                   <h2>Régler la météo</h2>
+                </div>
+              </div>
+
+              <div class="weather-mode-row">
+                <div class="weather-mode-switch" role="group" aria-label="Source des conditions météorologiques">
+                  <button id="weatherAutoButton" class="active" type="button" aria-pressed="true">
+                    <i aria-hidden="true"></i>Météo actuelle
+                  </button>
+                  <button id="weatherManualButton" type="button" aria-pressed="false">Manuelle</button>
+                </div>
+                <button class="weather-refresh" id="refreshWeather" type="button" aria-label="Actualiser la météo locale">↻</button>
+              </div>
+
+              <div class="weather-live-card loading" id="weatherLive" role="status" aria-live="polite">
+                <span class="weather-live-icon" id="weatherConditionIcon" aria-hidden="true">◌</span>
+                <div class="weather-live-copy">
+                  <strong id="weatherStatusTitle">Chargement de la météo locale…</strong>
+                  <small id="weatherStatusMeta">Modèle météo Open-Meteo</small>
+                  <div class="weather-facts" id="weatherFacts" hidden>
+                    <span id="weatherTemperature">— °C</span>
+                    <span id="weatherSourceWind">Vent —</span>
+                    <span id="weatherPrecipitation">Pluie —</span>
+                  </div>
                 </div>
               </div>
 
@@ -133,22 +156,22 @@
                     <span>N</span><span>E</span><span>S</span><span>O</span>
                     <i id="compassNeedle"></i>
                   </div>
-                  <input id="windDirection" type="range" min="0" max="359" step="1" value="55" />
+                  <input id="windDirection" type="range" min="0" max="359" step="1" value="55" disabled />
                   <output id="windDirectionValue" for="windDirection">055° · NE</output>
                 </label>
 
                 <div class="slider-stack">
                   <label class="range-control" for="windSpeed">
                     <span><b>Vent</b><output id="windSpeedValue" for="windSpeed">35 km/h</output></span>
-                    <input id="windSpeed" type="range" min="5" max="90" step="1" value="35" />
+                    <input id="windSpeed" type="range" min="0" max="120" step="1" value="35" disabled />
                   </label>
                   <label class="range-control" for="rainLevel">
                     <span><b>Précipitations</b><output id="rainLevelValue" for="rainLevel">20 %</output></span>
-                    <input id="rainLevel" type="range" min="0" max="100" step="1" value="20" />
+                    <input id="rainLevel" type="range" min="0" max="100" step="1" value="20" disabled />
                   </label>
                   <label class="range-control" for="dispersionLevel">
-                    <span><b>Instabilité de l'air</b><output id="dispersionValue" for="dispersionLevel">Moyenne</output></span>
-                    <input id="dispersionLevel" type="range" min="0" max="100" step="1" value="48" />
+                    <span><b>Instabilité estimée</b><output id="dispersionValue" for="dispersionLevel">Moyenne</output></span>
+                    <input id="dispersionLevel" type="range" min="0" max="100" step="1" value="48" disabled />
                   </label>
                 </div>
               </div>
@@ -161,7 +184,7 @@
               <span><small>PRÊT</small>Lancer la simulation</span>
               <i>↗</i>
             </button>
-            <p>Aucune donnée météo réelle · ne pas utiliser pour une urgence</p>
+            <p id="weatherFootnote">Météo locale automatique · ne pas utiliser pour une urgence</p>
           </div>
         </aside>
 
@@ -268,8 +291,9 @@
       <h2>Un laboratoire visuel, pas un outil de crise.</h2>
       <p>
         Nucleus rend visibles les mécanismes généraux d’un rejet atmosphérique. Le panache utilise un modèle
-        particulaire simplifié d’advection, dispersion et dépôt humide. Il ne tient pas compte du relief, de la
-        météo réelle, de la chimie des isotopes, des protections du site ni des mesures d’urgence.
+        particulaire simplifié d’advection, dispersion et dépôt humide. Les conditions locales proviennent par défaut
+        de modèles météorologiques actualisés, mais ne sont pas des mesures du site. Le calcul ne tient pas compte du
+        relief fin, de la chimie des isotopes, des protections du site ni des mesures d’urgence.
       </p>
       <div class="method-grid">
         <section>
@@ -291,6 +315,7 @@
       <div class="sources-block">
         <h3>Sources consultables</h3>
         <a href="https://nuclearchain.net/data/" target="_blank" rel="noreferrer">NuclearChain / Global Nuclear Power Tracker — inventaire mondial, CC BY 4.0 <span>↗</span></a>
+        <a href="https://open-meteo.com/en/docs" target="_blank" rel="noreferrer">Open-Meteo — conditions météorologiques actuelles, CC BY 4.0 <span>↗</span></a>
         <a href="https://pris.iaea.org/" target="_blank" rel="noreferrer">AIEA — Power Reactor Information System (PRIS) <span>↗</span></a>
         <a href="https://www.iaea.org/resources/databases/international-nuclear-and-radiological-event-scale" target="_blank" rel="noreferrer">AIEA — échelle INES <span>↗</span></a>
         <a href="https://www.unscear.org/unscear/en/areas-of-work/chernobyl.html" target="_blank" rel="noreferrer">UNSCEAR — évaluations de Tchernobyl <span>↗</span></a>
@@ -301,6 +326,6 @@
 
     <noscript>Cette expérience interactive nécessite JavaScript.</noscript>
     <script src="./vendor/leaflet.js?v=db49d00"></script>
-    <script src="./app.js?v=07441f5" defer></script>
+    <script src="./app.js?v=weather-1" defer></script>
   </body>
 </html>
