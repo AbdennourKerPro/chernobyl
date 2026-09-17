@@ -172,10 +172,10 @@ const map = L.map("map", {
   preferCanvas: true,
 });
 
-L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-  subdomains: "abcd",
-  maxZoom: 20,
-  attribution: "&copy; OpenStreetMap &copy; CARTO",
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  subdomains: "abc",
+  maxZoom: 19,
+  attribution: "&copy; OpenStreetMap contributors",
 }).addTo(map);
 
 const countryLayer = L.geoJSON(null, {

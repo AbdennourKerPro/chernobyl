@@ -999,7 +999,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .leaflet-tile-pane {
-  filter: saturate(0.55) brightness(0.78) hue-rotate(120deg);
+  filter: invert(100%) hue-rotate(180deg) brightness(72%) contrast(92%) saturate(42%);
 }
 
 .leaflet-control-attribution {
