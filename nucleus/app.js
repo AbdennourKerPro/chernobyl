@@ -16,8 +16,10 @@ const REACTOR_LABELS = {
   bwr: "Réacteur à eau bouillante",
   phwr: "Réacteur à eau lourde",
   lwgr: "Réacteur graphite-eau",
+  gcr: "Réacteur refroidi au gaz",
   htgr: "Réacteur à haute température",
   fbr: "Réacteur à neutrons rapides",
+  msr: "Réacteur à sels fondus",
   smr: "Petit réacteur modulaire",
   unknown: "Technologie non précisée",
 };
@@ -158,14 +160,15 @@ const els = Object.fromEntries(
     "headerPlantCount", "headerUnitCount", "headerCountryCount", "plantSearch", "searchResults",
     "countryFilter", "statusFilter", "plantCard", "plantStatus", "plantCountry", "plantName",
     "plantReactorCount", "plantUnits", "plantOperating", "plantCapacity", "unitList", "focusPlant",
-    "scenarioList", "compatibilityNote", "windDirection", "windDirectionValue", "compassNeedle",
+    "scenarioList", "compatibilityNote", "scenarioStatistics", "statReleaseStart", "statReleaseDuration",
+    "statDecay", "statHorizon", "statMaxReach", "statGroundArea", "windDirection", "windDirectionValue", "compassNeedle",
     "windSpeed", "windSpeedValue", "rainLevel", "rainLevelValue", "dispersionLevel", "dispersionValue",
     "weatherAutoButton", "weatherManualButton", "refreshWeather", "weatherLive", "weatherConditionIcon",
     "weatherStatusTitle", "weatherStatusMeta", "weatherFacts", "weatherTemperature", "weatherSourceWind",
     "weatherPrecipitation", "weatherFootnote",
     "launchSimulation", "zoomIn", "zoomOut", "resetView", "scenarioHud", "hudClock", "hudEvent",
-    "impactPanel", "impactPlantName", "closeSimulation", "metricIndex", "metricLabel", "metricReach",
-    "metricArea", "metricCountries", "timelineConsole", "playToggle", "playIcon", "timelineScenario",
+    "impactPanel", "impactPlantName", "impactScenarioMeta", "closeSimulation", "metricIndex", "metricLabel", "metricReach",
+    "metricArea", "metricGroundArea", "metricElapsed", "metricReleasePhase", "metricCountries", "timelineConsole", "playToggle", "playIcon", "timelineScenario",
     "timelineTime", "timeline", "timelineEvents", "playbackSpeed", "cinematicMode", "loadingScreen",
     "openMethod", "methodDialog", "datasetNote", "plumeCanvas",
   ].map((id) => [id, document.getElementById(id)])
@@ -295,6 +298,7 @@ function populateCountryFilter() {
 function renderScenarios() {
   els.scenarioList.replaceChildren();
   for (const scenario of SCENARIOS) {
+    const compatibility = scenarioCompatibility(state.selectedPlant, scenario);
     const button = document.createElement("button");
     button.type = "button";
     button.className = "scenario-card";
@@ -304,13 +308,18 @@ function renderScenarios() {
     button.innerHTML = `
       <span class="scenario-icon" aria-hidden="true">${scenario.icon}</span>
       <span class="scenario-copy"><strong>${scenario.name}</strong><small>${scenario.subtitle}</small></span>
-      <span class="severity-bars" data-level="${scenario.severity}" aria-label="Gravité ${scenario.severity} sur 5">
-        <i></i><i></i><i></i><i></i><i></i>
+      <span class="scenario-side">
+        <b class="scenario-compatibility" data-level="${compatibility.level}">${compatibility.label}</b>
+        <span class="severity-bars" data-level="${scenario.severity}" aria-label="Gravité ${scenario.severity} sur 5">
+          <i></i><i></i><i></i><i></i><i></i>
+        </span>
       </span>`;
     button.addEventListener("click", () => selectScenario(scenario));
     els.scenarioList.append(button);
   }
+  refreshScenarioCompatibility();
   updateCompatibilityNote();
+  updateScenarioStats();
 }
 
 function selectScenario(scenario) {
@@ -319,23 +328,98 @@ function selectScenario(scenario) {
     card.setAttribute("aria-checked", String(card.dataset.scenarioId === scenario.id));
   }
   updateCompatibilityNote();
+  updateScenarioStats();
   if (state.launched) launchSimulation();
 }
 
 function updateCompatibilityNote() {
   if (!state.selectedPlant) return;
-  const types = state.selectedPlant.reactorTypes.join(" ").toLowerCase();
-  let warning = "";
-  if (state.selectedScenario.id === "graphite" && !/(graphite|rbmk|lwgr)/.test(types)) {
-    warning = "Cette enveloppe RBMK/Tchernobyl n’est pas physiquement représentative de ce réacteur. Elle sert ici de cas extrême comparatif.";
-  } else if (state.selectedScenario.id === "tmi" && !/pressurized water/.test(types)) {
-    warning = "Three Mile Island concernait un réacteur à eau pressurisée. La séquence est transposée ici à titre comparatif.";
-  } else if (state.selectedScenario.id === "blackout" && !/boiling water/.test(types)) {
-    warning = "La référence historique est un réacteur à eau bouillante, mais une perte totale d’alimentation peut concerner d’autres filières.";
+  const compatibility = scenarioCompatibility(state.selectedPlant, state.selectedScenario);
+  const icons = { plausible: "✓", possible: "○", transposed: "≈", incompatible: "×" };
+  els.compatibilityNote.className = `compatibility-note ${compatibility.level}`;
+  els.compatibilityNote.querySelector("span").textContent = icons[compatibility.level] || "i";
+  els.compatibilityNote.querySelector("p").textContent = `${compatibility.label} — ${compatibility.detail}`;
+}
+
+function refreshScenarioCompatibility() {
+  for (const scenario of SCENARIOS) {
+    const card = els.scenarioList.querySelector(`[data-scenario-id="${scenario.id}"]`);
+    if (!card) continue;
+    const compatibility = scenarioCompatibility(state.selectedPlant, scenario);
+    const badge = card.querySelector(".scenario-compatibility");
+    badge.dataset.level = compatibility.level;
+    badge.textContent = compatibility.label;
+    card.setAttribute("aria-label", `${scenario.name}. ${compatibility.label}. ${compatibility.detail}`);
   }
-  els.compatibilityNote.classList.toggle("warning", Boolean(warning));
-  els.compatibilityNote.querySelector("span").textContent = warning ? "!" : "✓";
-  els.compatibilityNote.querySelector("p").textContent = warning || "Scénario cohérent avec la famille de réacteur sélectionnée.";
+}
+
+function scenarioCompatibility(plant, scenario) {
+  if (!plant) return { level: "possible", label: "À vérifier", detail: "Sélectionnez une centrale." };
+  const types = new Set(plant.reactorTypes.map((type) => type.toLowerCase()));
+  const hasAny = (...candidates) => candidates.some((type) => types.has(type));
+  const family = [...types].map((type) => type.toUpperCase()).join("/") || "filière non précisée";
+
+  if (scenario.id === "loca") {
+    if (hasAny("pwr", "bwr", "phwr")) return {
+      level: "plausible", label: "Plausible",
+      detail: `Une perte de réfrigérant primaire est physiquement cohérente avec la filière ${family}.`,
+    };
+    if (hasAny("lwgr", "fbr")) return {
+      level: "possible", label: "Possible",
+      detail: `Une perte de refroidissement est possible, mais le fluide et la progression diffèrent du LOCA à eau de référence (${family}).`,
+    };
+    return {
+      level: "transposed", label: "Transposé",
+      detail: `Le scénario à eau est peu représentatif d’une filière ${family}; une défaillance de refroidissement reste possible sous une autre forme.`,
+    };
+  }
+
+  if (scenario.id === "tmi") {
+    if (hasAny("pwr")) return {
+      level: "plausible", label: "Plausible",
+      detail: "La séquence de fusion partielle avec confinement maintenu correspond à la famille PWR de Three Mile Island.",
+    };
+    if (hasAny("msr")) return {
+      level: "incompatible", label: "Non applicable",
+      detail: "Dans un réacteur à sels fondus, le combustible est déjà liquide; la notion de fusion du cœur doit être remplacée par une séquence propre au MSR.",
+    };
+    if (hasAny("bwr", "phwr", "lwgr", "fbr", "gcr")) return {
+      level: "possible", label: "Possible",
+      detail: `Un endommagement sévère du combustible est possible en ${family}, mais la séquence et le confinement diffèrent de Three Mile Island.`,
+    };
+    return {
+      level: "transposed", label: "Transposé",
+      detail: `La fusion partielle classique est peu représentative de la filière ${family}, dont le combustible et les mécanismes passifs diffèrent.`,
+    };
+  }
+
+  if (scenario.id === "blackout") {
+    if (hasAny("pwr", "bwr", "phwr", "lwgr")) return {
+      level: "plausible", label: "Plausible",
+      detail: `La perte totale d’alimentation peut compromettre l’évacuation de la chaleur résiduelle sur une filière ${family}.`,
+    };
+    return {
+      level: "possible", label: "Possible",
+      detail: `La perte d’alimentation reste un initiateur possible en ${family}, mais les systèmes passifs et la progression dépendent fortement du modèle exact.`,
+    };
+  }
+
+  if (scenario.id === "graphite") {
+    if (hasAny("lwgr")) return {
+      level: "plausible", label: "Plausible",
+      detail: "L’enveloppe Tchernobyl est technologiquement cohérente avec une filière LWGR/RBMK à modérateur graphite.",
+    };
+    if (hasAny("gcr", "htgr")) return {
+      level: "possible", label: "Possible",
+      detail: `La filière ${family} contient du graphite, mais l’excursion de puissance et le confinement ne reproduisent pas un RBMK.`,
+    };
+    return {
+      level: "transposed", label: "Cas transposé",
+      detail: `Une perte grave de confinement est physiquement possible, mais l’excursion RBMK et l’incendie graphite ne correspondent pas à la filière ${family}.`,
+    };
+  }
+
+  return { level: "possible", label: "Possible", detail: "Compatibilité à confirmer selon la conception détaillée." };
 }
 
 function createMarkers() {
@@ -398,7 +482,9 @@ function selectPlant(plant, { focus = true } = {}) {
   renderPlantCard();
   refreshMarkerStyles();
   countryLayer.setStyle(countryStyle);
+  refreshScenarioCompatibility();
   updateCompatibilityNote();
+  updateScenarioStats();
   closeSearchResults();
   els.plantSearch.value = "";
   if (focus) map.flyTo([plant.lat, plant.lon], Math.max(map.getZoom(), 5), { duration: 1.25 });
@@ -454,6 +540,7 @@ function bindControls() {
   for (const input of [els.windDirection, els.windSpeed, els.rainLevel, els.dispersionLevel]) {
     input.addEventListener("input", () => {
       updateWeatherReadouts();
+      updateScenarioStats();
       if (state.weather.mode === "manual") state.weather.manualSnapshot = readWeatherInputs();
       if (state.launched) {
         updateContours();
@@ -584,6 +671,7 @@ function applyWeatherInputs(values) {
   els.rainLevel.value = String(clamp(Math.round(values.rain), 0, 100));
   els.dispersionLevel.value = String(clamp(Math.round(values.dispersion), 0, 100));
   updateWeatherReadouts();
+  updateScenarioStats();
   if (state.launched) {
     updateContours();
     state.lastCountryCalculation = -100;
@@ -801,6 +889,7 @@ function launchSimulation() {
   els.impactPanel.hidden = false;
   els.timelineConsole.hidden = false;
   els.impactPlantName.textContent = state.selectedPlant.name;
+  els.impactScenarioMeta.textContent = `${state.selectedScenario.name} · rejets pendant ${formatDuration(state.selectedScenario.releaseDuration)}`;
   els.timelineScenario.textContent = state.selectedScenario.name;
   els.timeline.max = String(state.selectedScenario.totalHours);
   els.timeline.value = "0";
@@ -982,6 +1071,9 @@ function updateSimulationUi(forceCountryCalculation) {
   els.metricLabel.textContent = indexLabel(index, state.simHours < scenario.releaseStart);
   els.metricReach.textContent = `${numberFormat.format(metrics.reach)} km`;
   els.metricArea.textContent = metrics.area < 1 ? "0 km²" : `${compactNumber(metrics.area)} km²`;
+  els.metricGroundArea.textContent = metrics.groundArea < 1 ? "0 km²" : `${compactNumber(metrics.groundArea)} km²`;
+  els.metricElapsed.textContent = `T+ ${clock}`;
+  els.metricReleasePhase.textContent = releasePhaseText(scenario, state.simHours);
 
   if (forceCountryCalculation || Math.abs(state.simHours - state.lastCountryCalculation) > 0.6) {
     state.impactedCountries = calculateImpactedCountries(metrics);
@@ -1000,18 +1092,43 @@ function updateSimulationUi(forceCountryCalculation) {
 }
 
 function plumeMetrics() {
+  return plumeMetricsAt(state.simHours);
+}
+
+function plumeMetricsAt(simHours) {
   const scenario = state.selectedScenario;
-  const activeHours = Math.max(0, state.simHours - scenario.releaseStart);
+  const activeHours = Math.max(0, simHours - scenario.releaseStart);
   const wind = Number(els.windSpeed.value);
   const rain = Number(els.rainLevel.value) / 100;
   const instability = 0.55 + Number(els.dispersionLevel.value) / 67;
-  if (activeHours <= 0) return { reach: 0, width: 0, area: 0, activeHours: 0, releaseFraction: 0 };
+  if (activeHours <= 0) return { reach: 0, width: 0, area: 0, groundArea: 0, activeHours: 0, releaseFraction: 0 };
   const releaseFraction = clamp(activeHours / Math.max(2, scenario.releaseDuration * 0.72), 0, 1);
-  const windLimit = scenario.maxRange * Math.pow(wind / 35, 0.66);
+  const windLimit = scenario.maxRange * Math.pow(Math.max(0.35, wind) / 35, 0.66);
   const reach = Math.min(windLimit, wind * activeHours * (0.78 + scenario.sourceStrength * 0.14));
   const width = Math.max(5, Math.sqrt(Math.max(1, reach)) * 3.2 * scenario.spread * instability * (1 - rain * 0.12));
   const area = Math.PI * Math.max(1, reach * 0.52) * Math.max(1, width);
-  return { reach, width, area, activeHours, releaseFraction };
+  const depositionFactor = clamp(0.18 + rain * 0.72, 0.18, 0.9);
+  const groundArea = area * depositionFactor * (0.4 + releaseFraction * 0.6);
+  return { reach, width, area, groundArea, activeHours, releaseFraction };
+}
+
+function updateScenarioStats() {
+  if (!state.selectedScenario || !els.statReleaseStart) return;
+  const scenario = state.selectedScenario;
+  const metrics = plumeMetricsAt(scenario.totalHours);
+  els.statReleaseStart.textContent = `T+ ${formatDuration(scenario.releaseStart)}`;
+  els.statReleaseDuration.textContent = formatDuration(scenario.releaseDuration);
+  els.statDecay.textContent = formatDuration(scenario.decayHours);
+  els.statHorizon.textContent = formatDuration(scenario.totalHours);
+  els.statMaxReach.textContent = `${numberFormat.format(metrics.reach)} km`;
+  els.statGroundArea.textContent = metrics.groundArea < 1 ? "0 km²" : `${compactNumber(metrics.groundArea)} km²`;
+}
+
+function releasePhaseText(scenario, simHours) {
+  const releaseEnd = scenario.releaseStart + scenario.releaseDuration;
+  if (simHours < scenario.releaseStart) return `Avant le rejet · T+ ${formatDuration(scenario.releaseStart)}`;
+  if (simHours <= releaseEnd) return `Rejet actif · ${formatDuration(releaseEnd - simHours)} restantes`;
+  return `Rejet terminé · depuis ${formatDuration(simHours - releaseEnd)}`;
 }
 
 function relativeIndex(metrics) {
@@ -1214,6 +1331,12 @@ function formatClock(hours) {
   const whole = Math.floor(hours);
   const minutes = Math.floor((hours - whole) * 60);
   return `${String(whole).padStart(2, "0")} h ${String(minutes).padStart(2, "0")}`;
+}
+
+function formatDuration(hours) {
+  if (hours < 1) return `${Math.max(1, Math.round(hours * 60))} min`;
+  const rounded = Math.round(hours * 10) / 10;
+  return `${rounded.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} h`;
 }
 
 function cardinal(degrees) {

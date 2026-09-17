@@ -11,7 +11,7 @@
     <title>NUCLEUS — Atlas des scénarios nucléaires</title>
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <link rel="stylesheet" href="./vendor/leaflet.css?v=a783710" />
-    <link rel="stylesheet" href="./styles.css?v=weather-1" />
+    <link rel="stylesheet" href="./styles.css?v=compat-1" />
   </head>
   <body>
     <div class="app-shell">
@@ -115,6 +115,15 @@
                 <span>✓</span>
                 <p>Scénario cohérent avec le type de réacteur sélectionné.</p>
               </div>
+              <div class="scenario-statistics" id="scenarioStatistics" aria-label="Statistiques du scénario sélectionné">
+                <div><span>Début du rejet</span><strong id="statReleaseStart">—</strong></div>
+                <div><span>Durée des rejets</span><strong id="statReleaseDuration">—</strong></div>
+                <div><span>Décroissance modèle</span><strong id="statDecay">—</strong></div>
+                <div><span>Horizon simulé</span><strong id="statHorizon">—</strong></div>
+                <div><span>Portée projetée</span><strong id="statMaxReach">—</strong></div>
+                <div><span>Dépôts projetés</span><strong id="statGroundArea">—</strong></div>
+              </div>
+              <p class="scenario-method-note">Plausibilité technologique par filière, pas fréquence probabiliste propre à l’installation.</p>
             </section>
 
             <section class="deck-section weather-section">
@@ -223,6 +232,7 @@
               <div>
                 <span>IMPACT SIMULÉ</span>
                 <h2 id="impactPlantName">Gravelines</h2>
+                <p id="impactScenarioMeta">Black-out prolongé · rejets pendant 34 h</p>
               </div>
               <button id="closeSimulation" type="button" aria-label="Fermer la simulation">×</button>
             </div>
@@ -235,13 +245,16 @@
             </div>
             <div class="impact-metrics">
               <div><span>Portée du panache</span><strong id="metricReach">0 km</strong></div>
-              <div><span>Surface indicative</span><strong id="metricArea">0 km²</strong></div>
+              <div><span>Surface du panache</span><strong id="metricArea">0 km²</strong></div>
+              <div><span>Dépôts au sol estimés</span><strong id="metricGroundArea">0 km²</strong></div>
+              <div><span>Temps écoulé</span><strong id="metricElapsed">T+ 00 h 00</strong></div>
+              <div class="release-metric"><span>Phase du rejet</span><strong id="metricReleasePhase">Avant le rejet</strong></div>
               <div class="countries-metric"><span>Territoires traversés</span><strong id="metricCountries">—</strong></div>
             </div>
             <div class="dose-legend" aria-label="Légende de l'indice relatif">
               <span>Faible</span><i></i><i></i><i></i><i></i><span>Très fort</span>
             </div>
-            <p class="model-caveat">Indice comparatif, pas une dose en mSv. La pluie crée des dépôts locaux plus intenses.</p>
+            <p class="model-caveat">Indice comparatif, pas une dose en mSv. Les surfaces sont des emprises indicatives du modèle, pas des zonages réglementaires.</p>
           </aside>
 
           <div class="timeline-console" id="timelineConsole" hidden>
@@ -304,7 +317,7 @@
         <section>
           <span>02 · SCÉNARIOS</span>
           <h3>Des enveloppes comparatives</h3>
-          <p>Les scénarios reprennent les grandes familles d’événements, sans reproduire un accident historique au becquerel près.</p>
+          <p>La plausibilité est déduite de la famille de réacteur. Elle ne remplace pas l’étude probabiliste de sûreté propre à chaque installation.</p>
         </section>
         <section>
           <span>03 · IMPACT</span>
@@ -316,6 +329,8 @@
         <h3>Sources consultables</h3>
         <a href="https://nuclearchain.net/data/" target="_blank" rel="noreferrer">NuclearChain / Global Nuclear Power Tracker — inventaire mondial, CC BY 4.0 <span>↗</span></a>
         <a href="https://open-meteo.com/en/docs" target="_blank" rel="noreferrer">Open-Meteo — conditions météorologiques actuelles, CC BY 4.0 <span>↗</span></a>
+        <a href="https://www.nrc.gov/education-regulatory-research/glossary/loss-of-coolant-accident-loca" target="_blank" rel="noreferrer">NRC — définition d’un accident de perte de réfrigérant primaire <span>↗</span></a>
+        <a href="https://www.iaea.org/topics/severe-accident-management" target="_blank" rel="noreferrer">AIEA — gestion des accidents graves et dépendance à la conception <span>↗</span></a>
         <a href="https://pris.iaea.org/" target="_blank" rel="noreferrer">AIEA — Power Reactor Information System (PRIS) <span>↗</span></a>
         <a href="https://www.iaea.org/resources/databases/international-nuclear-and-radiological-event-scale" target="_blank" rel="noreferrer">AIEA — échelle INES <span>↗</span></a>
         <a href="https://www.unscear.org/unscear/en/areas-of-work/chernobyl.html" target="_blank" rel="noreferrer">UNSCEAR — évaluations de Tchernobyl <span>↗</span></a>
@@ -326,6 +341,6 @@
 
     <noscript>Cette expérience interactive nécessite JavaScript.</noscript>
     <script src="./vendor/leaflet.js?v=db49d00"></script>
-    <script src="./app.js?v=weather-1" defer></script>
+    <script src="./app.js?v=compat-1" defer></script>
   </body>
 </html>
