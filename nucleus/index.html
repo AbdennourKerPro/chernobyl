@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Atlas interactif des centrales nucléaires mondiales et simulateur pédagogique de dispersion radiologique."
+    />
+    <meta name="theme-color" content="#07100f" />
+    <title>NUCLEUS — Atlas des scénarios nucléaires</title>
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIINfQ3ynh7FTnFQdEZJ1LSf9LWjZw1/gZw="
+      crossorigin=""
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand" aria-label="Nucleus, atlas nucléaire interactif">
+          <span class="brand-mark" aria-hidden="true"><i></i></span>
+          <span class="brand-word">NUCLEUS</span>
+          <span class="brand-mode">ATLAS / SIM</span>
+        </div>
+
+        <div class="fleet-readout" aria-live="polite">
+          <span><b id="headerPlantCount">—</b> sites</span>
+          <i></i>
+          <span><b id="headerUnitCount">—</b> unités suivies</span>
+          <i></i>
+          <span><b id="headerCountryCount">—</b> pays</span>
+        </div>
+
+        <div class="top-actions">
+          <span class="educational-badge"><i></i> Modèle pédagogique</span>
+          <button class="icon-button" id="openMethod" type="button" aria-label="Ouvrir la méthode et les sources">
+            <span>i</span>
+          </button>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <aside class="control-deck" aria-label="Configuration de la simulation">
+          <div class="deck-scroll">
+            <section class="deck-section plant-section">
+              <div class="section-heading">
+                <span class="step-index">01</span>
+                <div>
+                  <p>Point de départ</p>
+                  <h1>Choisir une centrale</h1>
+                </div>
+              </div>
+
+              <label class="search-field" for="plantSearch">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.35-4.35m2.35-5.65a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z" /></svg>
+                <input id="plantSearch" type="search" autocomplete="off" placeholder="Nom, pays…" />
+                <kbd>/</kbd>
+              </label>
+              <div class="search-results" id="searchResults" role="listbox" hidden></div>
+
+              <div class="selector-row">
+                <label class="compact-select">
+                  <span>Pays</span>
+                  <select id="countryFilter" aria-label="Filtrer les centrales par pays">
+                    <option value="all">Tous les pays</option>
+                  </select>
+                </label>
+                <label class="compact-select">
+                  <span>Parc</span>
+                  <select id="statusFilter" aria-label="Filtrer selon le statut des centrales">
+                    <option value="current">Actuel</option>
+                    <option value="future">Projets</option>
+                    <option value="historical">Historique</option>
+                    <option value="all">Tout afficher</option>
+                  </select>
+                </label>
+              </div>
+
+              <article class="plant-card" id="plantCard">
+                <div class="plant-card-topline">
+                  <span class="status-pill" id="plantStatus">EN SERVICE</span>
+                  <button id="focusPlant" type="button">Centrer <span>↗</span></button>
+                </div>
+                <div class="plant-title-row">
+                  <div>
+                    <p id="plantCountry">France</p>
+                    <h2 id="plantName">Gravelines</h2>
+                  </div>
+                  <div class="reactor-orbit" aria-hidden="true">
+                    <span id="plantReactorCount">6</span>
+                    <i></i><i></i>
+                  </div>
+                </div>
+                <div class="plant-stats">
+                  <div><span>Unités suivies</span><strong id="plantUnits">—</strong></div>
+                  <div><span>En service</span><strong id="plantOperating">—</strong></div>
+                  <div><span>Puissance</span><strong id="plantCapacity">—</strong></div>
+                </div>
+                <details id="unitDetails">
+                  <summary>Voir les unités <span>+</span></summary>
+                  <div class="unit-list" id="unitList"></div>
+                </details>
+              </article>
+            </section>
+
+            <section class="deck-section scenario-section">
+              <div class="section-heading compact">
+                <span class="step-index">02</span>
+                <div>
+                  <p>Événement initiateur</p>
+                  <h2>Choisir un accident</h2>
+                </div>
+              </div>
+              <div class="scenario-list" id="scenarioList" role="radiogroup" aria-label="Scénario d'accident"></div>
+              <div class="compatibility-note" id="compatibilityNote">
+                <span>✓</span>
+                <p>Scénario cohérent avec le type de réacteur sélectionné.</p>
+              </div>
+            </section>
+
+            <section class="deck-section weather-section">
+              <div class="section-heading compact">
+                <span class="step-index">03</span>
+                <div>
+                  <p>Atmosphère synthétique</p>
+                  <h2>Régler la météo</h2>
+                </div>
+              </div>
+
+              <div class="weather-grid">
+                <label class="dial-control" for="windDirection">
+                  <span>Direction du panache</span>
+                  <div class="compass" id="compass" aria-hidden="true">
+                    <span>N</span><span>E</span><span>S</span><span>O</span>
+                    <i id="compassNeedle"></i>
+                  </div>
+                  <input id="windDirection" type="range" min="0" max="359" step="1" value="55" />
+                  <output id="windDirectionValue" for="windDirection">055° · NE</output>
+                </label>
+
+                <div class="slider-stack">
+                  <label class="range-control" for="windSpeed">
+                    <span><b>Vent</b><output id="windSpeedValue" for="windSpeed">35 km/h</output></span>
+                    <input id="windSpeed" type="range" min="5" max="90" step="1" value="35" />
+                  </label>
+                  <label class="range-control" for="rainLevel">
+                    <span><b>Précipitations</b><output id="rainLevelValue" for="rainLevel">20 %</output></span>
+                    <input id="rainLevel" type="range" min="0" max="100" step="1" value="20" />
+                  </label>
+                  <label class="range-control" for="dispersionLevel">
+                    <span><b>Instabilité de l'air</b><output id="dispersionValue" for="dispersionLevel">Moyenne</output></span>
+                    <input id="dispersionLevel" type="range" min="0" max="100" step="1" value="48" />
+                  </label>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <div class="launch-zone">
+            <button class="launch-button" id="launchSimulation" type="button">
+              <span class="launch-icon">▶</span>
+              <span><small>PRÊT</small>Lancer la simulation</span>
+              <i>↗</i>
+            </button>
+            <p>Aucune donnée météo réelle · ne pas utiliser pour une urgence</p>
+          </div>
+        </aside>
+
+        <section class="map-stage" aria-label="Carte mondiale des centrales et du panache simulé">
+          <div id="map"></div>
+          <canvas id="plumeCanvas" aria-hidden="true"></canvas>
+
+          <div class="map-tools" aria-label="Outils de carte">
+            <button id="zoomIn" type="button" aria-label="Zoomer">+</button>
+            <button id="zoomOut" type="button" aria-label="Dézoomer">−</button>
+            <button id="resetView" type="button" aria-label="Revenir à la vue mondiale">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/></svg>
+            </button>
+          </div>
+
+          <div class="map-key">
+            <span><i class="dot operating"></i>En service</span>
+            <span><i class="dot construction"></i>Construction</span>
+            <span><i class="dot other"></i>Autre statut</span>
+          </div>
+
+          <div class="scenario-hud" id="scenarioHud" hidden>
+            <div class="hud-status">
+              <span class="live-dot"></span>
+              <p>SIMULATION EN COURS</p>
+              <strong id="hudClock">T+ 00 h 00</strong>
+            </div>
+            <div class="hud-event">
+              <span>PHASE ACTIVE</span>
+              <p id="hudEvent">Arrêt automatique du réacteur</p>
+            </div>
+          </div>
+
+          <aside class="impact-panel" id="impactPanel" hidden aria-live="polite">
+            <div class="impact-heading">
+              <div>
+                <span>IMPACT SIMULÉ</span>
+                <h2 id="impactPlantName">Gravelines</h2>
+              </div>
+              <button id="closeSimulation" type="button" aria-label="Fermer la simulation">×</button>
+            </div>
+            <div class="impact-index">
+              <div class="index-ring"><strong id="metricIndex">0</strong><span>/100</span></div>
+              <div>
+                <span>INDICE RADIOLOGIQUE RELATIF</span>
+                <p id="metricLabel">Rejet non commencé</p>
+              </div>
+            </div>
+            <div class="impact-metrics">
+              <div><span>Portée du panache</span><strong id="metricReach">0 km</strong></div>
+              <div><span>Surface indicative</span><strong id="metricArea">0 km²</strong></div>
+              <div class="countries-metric"><span>Territoires traversés</span><strong id="metricCountries">—</strong></div>
+            </div>
+            <div class="dose-legend" aria-label="Légende de l'indice relatif">
+              <span>Faible</span><i></i><i></i><i></i><i></i><span>Très fort</span>
+            </div>
+            <p class="model-caveat">Indice comparatif, pas une dose en mSv. La pluie crée des dépôts locaux plus intenses.</p>
+          </aside>
+
+          <div class="timeline-console" id="timelineConsole" hidden>
+            <button class="play-toggle" id="playToggle" type="button" aria-label="Mettre en pause">
+              <span id="playIcon">Ⅱ</span>
+            </button>
+            <div class="timeline-main">
+              <div class="timeline-labels">
+                <span id="timelineScenario">Black-out prolongé</span>
+                <span id="timelineTime">00:00 / 72 h</span>
+              </div>
+              <div class="timeline-track-wrap">
+                <input id="timeline" type="range" min="0" max="72" step="0.05" value="0" aria-label="Temps simulé en heures" />
+                <div class="timeline-events" id="timelineEvents" aria-hidden="true"></div>
+              </div>
+            </div>
+            <label class="speed-select">
+              <span>Vitesse</span>
+              <select id="playbackSpeed" aria-label="Vitesse de lecture">
+                <option value="0.6">× 0,5</option>
+                <option value="2.4" selected>× 2</option>
+                <option value="7.2">× 6</option>
+                <option value="14.4">× 12</option>
+              </select>
+            </label>
+            <label class="cinema-toggle">
+              <input id="cinematicMode" type="checkbox" checked />
+              <span></span>
+              Caméra
+            </label>
+          </div>
+
+          <div class="loading-screen" id="loadingScreen">
+            <div class="loading-core"><i></i><i></i><b></b></div>
+            <p>Chargement de l’atlas mondial</p>
+            <span>Préparation de l’inventaire mondial</span>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <dialog class="method-dialog" id="methodDialog">
+      <form method="dialog">
+        <button class="dialog-close" aria-label="Fermer">×</button>
+      </form>
+      <div class="dialog-kicker">MÉTHODE · SOURCES · LIMITES</div>
+      <h2>Un laboratoire visuel, pas un outil de crise.</h2>
+      <p>
+        Nucleus rend visibles les mécanismes généraux d’un rejet atmosphérique. Le panache utilise un modèle
+        particulaire simplifié d’advection, dispersion et dépôt humide. Il ne tient pas compte du relief, de la
+        météo réelle, de la chimie des isotopes, des protections du site ni des mesures d’urgence.
+      </p>
+      <div class="method-grid">
+        <section>
+          <span>01 · INVENTAIRE</span>
+          <h3>Flotte mondiale, unité par unité</h3>
+          <p>Données agrégées par site, tous statuts confondus, avec nombre d’unités, puissance et technologie.</p>
+        </section>
+        <section>
+          <span>02 · SCÉNARIOS</span>
+          <h3>Des enveloppes comparatives</h3>
+          <p>Les scénarios reprennent les grandes familles d’événements, sans reproduire un accident historique au becquerel près.</p>
+        </section>
+        <section>
+          <span>03 · IMPACT</span>
+          <h3>Un indice relatif de 0 à 100</h3>
+          <p>Il compare les scénarios et réglages. Il ne représente ni une dose individuelle, ni une prévision sanitaire.</p>
+        </section>
+      </div>
+      <div class="sources-block">
+        <h3>Sources consultables</h3>
+        <a href="https://nuclearchain.net/data/" target="_blank" rel="noreferrer">NuclearChain / Global Nuclear Power Tracker — inventaire mondial, CC BY 4.0 <span>↗</span></a>
+        <a href="https://pris.iaea.org/" target="_blank" rel="noreferrer">AIEA — Power Reactor Information System (PRIS) <span>↗</span></a>
+        <a href="https://www.iaea.org/resources/databases/international-nuclear-and-radiological-event-scale" target="_blank" rel="noreferrer">AIEA — échelle INES <span>↗</span></a>
+        <a href="https://www.unscear.org/unscear/en/areas-of-work/chernobyl.html" target="_blank" rel="noreferrer">UNSCEAR — évaluations de Tchernobyl <span>↗</span></a>
+        <a href="https://www.unscear.org/unscear/en/areas-of-work/fukushima.html" target="_blank" rel="noreferrer">UNSCEAR — évaluations de Fukushima <span>↗</span></a>
+      </div>
+      <p class="dataset-note" id="datasetNote">Jeu de données : Global Energy Monitor, édition d’août 2026.</p>
+    </dialog>
+
+    <noscript>Cette expérience interactive nécessite JavaScript.</noscript>
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script src="./app.js" defer></script>
+  </body>
+</html>
